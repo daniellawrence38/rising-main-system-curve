@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Rising main system curve calculator with fitted pump curve overlay, duty-point intersection and 0.75-2.5 m/s velocity window. Darcy-Weisbach + Colebrook-White (Swamee-Jain).">
+<title>Rising Main System Curve</title>
+<style>
+  :root{
+    --bg:#eef2f3; --panel:#ffffff; --panel-2:#f6f9fa; --ink:#152230;
+    --ink-soft:#4a5b6a; --line:#d3dde1; --line-soft:#e5ecee;
+    --accent:#0e7c9b; --warm:#d9691e; --pump:#7c5cbf;
+    --good:#2e9e6b; --warn:#b8860b; --crit:#c0392b;
+    --mono:ui-monospace,"SF Mono","Cascadia Mono","Roboto Mono",Menlo,Consolas,monospace;
+    --sans:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#0d151b; --panel:#141f27; --panel-2:#0f1920; --ink:#e6eef2;
+      --ink-soft:#93a6b2; --line:#26343d; --line-soft:#1c2830;
+      --accent:#3bb6d6; --warm:#e8843f; --pump:#a98ce6;
+      --good:#42b681; --warn:#d9a63a; --crit:#e0685c;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0d151b; --panel:#141f27; --panel-2:#0f1920; --ink:#e6eef2;
+    --ink-soft:#93a6b2; --line:#26343d; --line-soft:#1c2830;
+    --accent:#3bb6d6; --warm:#e8843f; --pump:#a98ce6;
+    --good:#42b681; --warn:#d9a63a; --crit:#e0685c;
+  }
+  :root[data-theme="light"]{
+    --bg:#eef2f3; --panel:#ffffff; --panel-2:#f6f9fa; --ink:#152230;
+    --ink-soft:#4a5b6a; --line:#d3dde1; --line-soft:#e5ecee;
+    --accent:#0e7c9b; --warm:#d9691e; --pump:#7c5cbf;
+    --good:#2e9e6b; --warn:#b8860b; --crit:#c0392b;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+    line-height:1.5;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1140px;margin:0 auto;padding:28px 20px 56px}
+  header{margin-bottom:22px}
+  .eyebrow{font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--accent);font-weight:600;margin:0 0 6px}
+  h1{font-size:26px;font-weight:650;margin:0;letter-spacing:-.01em;text-wrap:balance}
+  .sub{color:var(--ink-soft);font-size:14px;margin:6px 0 0;max-width:64ch}
+  .grid{display:grid;grid-template-columns:300px 1fr;gap:20px;align-items:start}
+  @media (max-width:820px){.grid{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px}
+  .card.pad{padding:18px}
+  .card h2{font-size:12px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--ink-soft);margin:0 0 14px;font-weight:600}
+  .field{display:flex;flex-direction:column;gap:4px;margin-bottom:11px}
+  .field.two{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .field label{font-size:12.5px;color:var(--ink-soft);display:flex;justify-content:space-between;gap:6px}
+  .field label .u{color:var(--ink-soft);opacity:.7;font-family:var(--mono);font-size:11px}
+  .field input{font-family:var(--mono);font-size:14px;color:var(--ink);
+    background:var(--panel-2);border:1px solid var(--line);border-radius:7px;
+    padding:8px 10px;width:100%;-moz-appearance:textfield}
+  .field input:focus{outline:2px solid var(--accent);outline-offset:0;border-color:transparent}
+  .subhead{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);
+    font-weight:600;margin:18px 0 10px;padding-top:14px;border-top:1px solid var(--line-soft)}
+  .subhead:first-of-type{border-top:none;padding-top:0;margin-top:0}
+  .subhead.pumpc{color:var(--pump)}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:18px}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:13px 15px;
+    position:relative;overflow:hidden}
+  .kpi .k-lab{font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-soft);margin-bottom:8px}
+  .kpi .k-row{display:flex;align-items:baseline;gap:10px;justify-content:space-between}
+  .kpi .k-cell{display:flex;flex-direction:column;gap:1px}
+  .kpi .k-min{font-size:10px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.04em}
+  .kpi .k-val{font-family:var(--mono);font-size:20px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.1}
+  .kpi .k-unit{font-family:var(--mono);font-size:11px;color:var(--ink-soft);margin-left:2px;font-weight:400}
+  .kpi .stripe{position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--accent)}
+  .kpi.warm .stripe{background:var(--warm)}
+  .kpi.pumpk .stripe{background:var(--pump)}
+  .pill{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:600;
+    padding:2px 8px;border-radius:999px;letter-spacing:.02em;margin-top:9px}
+  .pill.good{color:var(--good);background:color-mix(in srgb,var(--good) 15%,transparent)}
+  .pill.warn{color:var(--warn);background:color-mix(in srgb,var(--warn) 17%,transparent)}
+  .pill.crit{color:var(--crit);background:color-mix(in srgb,var(--crit) 16%,transparent)}
+  .pill .dot{width:6px;height:6px;border-radius:50%;background:currentColor}
+  .chartcard{padding:18px 18px 10px}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;margin:2px 0 6px;font-size:12px;color:var(--ink-soft)}
+  .legend .lg{display:inline-flex;align-items:center;gap:7px}
+  .swatch{width:16px;height:3px;border-radius:2px;display:inline-block}
+  .swatch.dash{background:repeating-linear-gradient(90deg,currentColor 0 5px,transparent 5px 9px);height:2px}
+  .swatch.box{width:14px;height:12px;border-radius:3px;background:color-mix(in srgb,var(--good) 22%,transparent);border:1px solid color-mix(in srgb,var(--good) 45%,transparent)}
+  .swatch.diam{width:11px;height:11px;background:var(--ink);transform:rotate(45deg);border-radius:2px}
+  svg{width:100%;height:auto;display:block}
+  .axis-lab{font-size:11px;fill:var(--ink-soft);font-family:var(--sans)}
+  .tick{font-size:10px;fill:var(--ink-soft);font-family:var(--mono)}
+  .gridline{stroke:var(--line-soft);stroke-width:1}
+  .foot{font-size:11.5px;color:var(--ink-soft);margin-top:12px;line-height:1.55}
+  .foot code{font-family:var(--mono);background:var(--panel-2);padding:1px 5px;border-radius:4px;font-size:11px}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow">Pumping Station Hydraulics</p>
+    <h1>Rising Main System &amp; Pump Curve</h1>
+    <p class="sub">System curve (Darcy–Weisbach + Colebrook–White via Swamee–Jain) overlaid with a fitted pump curve.
+      The duty point is where they cross; the green band marks the 0.75–2.5 m/s velocity window. All live.</p>
+  </header>
+
+  <div class="grid">
+    <!-- INPUTS -->
+    <div class="card pad">
+      <h2>Inputs</h2>
+      <div class="subhead">Pipe</div>
+      <div class="field"><label>Diameter (bore) <span class="u">mm</span></label><input id="D" type="number" value="150" step="10"></div>
+      <div class="field"><label>Length <span class="u">m</span></label><input id="L" type="number" value="500" step="10"></div>
+      <div class="field two">
+        <div><label>Roughness k <span class="u">mm</span></label><input id="k" type="number" value="0.6" step="0.1"></div>
+        <div><label>Minor ΣK <span class="u">–</span></label><input id="K" type="number" value="2.0" step="0.5"></div>
+      </div>
+
+      <div class="subhead">Levels (m AOD)</div>
+      <div class="field"><label>Discharge level <span class="u">m</span></label><input id="disch" type="number" value="25.0" step="0.1"></div>
+      <div class="field"><label>Overflow level <span class="u">m</span></label><input id="over" type="number" value="12.5" step="0.1"></div>
+      <div class="field"><label>Pump water level <span class="u">m</span></label><input id="pwl" type="number" value="10.0" step="0.1"></div>
+
+      <div class="subhead">Flow &amp; fluid</div>
+      <div class="field two">
+        <div><label>Min flow <span class="u">L/s</span></label><input id="Qmin" type="number" value="15" step="1"></div>
+        <div><label>Max flow <span class="u">L/s</span></label><input id="Qmax" type="number" value="30" step="1"></div>
+      </div>
+      <div class="field"><label>Kinematic viscosity ν <span class="u">×10⁻⁶ m²/s</span></label><input id="nu" type="number" value="1.31" step="0.01"></div>
+
+      <div class="subhead pumpc">Pump curve</div>
+      <div class="field"><label>Shut-off head H₀ (at Q=0) <span class="u">m</span></label><input id="H0" type="number" value="42" step="0.5"></div>
+      <div class="field two">
+        <div><label>Point 1 Q <span class="u">L/s</span></label><input id="Q1" type="number" value="25" step="1"></div>
+        <div><label>Point 1 H <span class="u">m</span></label><input id="H1" type="number" value="33" step="0.5"></div>
+      </div>
+      <div class="field two">
+        <div><label>Point 2 Q <span class="u">L/s</span></label><input id="Q2" type="number" value="50" step="1"></div>
+        <div><label>Point 2 H <span class="u">m</span></label><input id="H2" type="number" value="18" step="0.5"></div>
+      </div>
+    </div>
+
+    <!-- OUTPUTS -->
+    <div>
+      <div class="kpis">
+        <div class="kpi"><div class="stripe"></div>
+          <div class="k-lab">Static head</div>
+          <div class="k-row">
+            <div class="k-cell"><span class="k-min">min</span><span class="k-val" id="hsmin">–</span></div>
+            <div class="k-cell"><span class="k-min">max</span><span class="k-val" id="hsmax">–<span class="k-unit">m</span></span></div>
+          </div>
+        </div>
+        <div class="kpi warm"><div class="stripe"></div>
+          <div class="k-lab">Dynamic head</div>
+          <div class="k-row">
+            <div class="k-cell"><span class="k-min">@min Q</span><span class="k-val" id="hdmin">–</span></div>
+            <div class="k-cell"><span class="k-min">@max Q</span><span class="k-val" id="hdmax">–<span class="k-unit">m</span></span></div>
+          </div>
+        </div>
+        <div class="kpi pumpk"><div class="stripe"></div>
+          <div class="k-lab">Duty flow (pump ∩ system)</div>
+          <div class="k-row">
+            <div class="k-cell"><span class="k-min">low</span><span class="k-val" id="qdmin">–</span></div>
+            <div class="k-cell"><span class="k-min">high</span><span class="k-val" id="qdmax">–<span class="k-unit">L/s</span></span></div>
+          </div>
+        </div>
+        <div class="kpi pumpk"><div class="stripe"></div>
+          <div class="k-lab">Duty velocity</div>
+          <div class="k-row">
+            <div class="k-cell"><span class="k-min">low</span><span class="k-val" id="vdmin">–</span></div>
+            <div class="k-cell"><span class="k-min">high</span><span class="k-val" id="vdmax">–<span class="k-unit">m/s</span></span></div>
+          </div>
+          <span id="vpill" class="pill good"><span class="dot"></span>within band</span>
+        </div>
+      </div>
+
+      <div class="card chartcard">
+        <h2 style="margin-bottom:8px">System &amp; Pump Curves</h2>
+        <div class="legend">
+          <span class="lg"><span class="swatch" style="background:var(--accent)"></span>System · max static</span>
+          <span class="lg"><span class="swatch" style="background:var(--warm)"></span>System · min static</span>
+          <span class="lg" style="color:var(--pump)"><span class="swatch" style="background:var(--pump)"></span>Pump</span>
+          <span class="lg"><span class="swatch diam"></span>Duty point</span>
+          <span class="lg" style="color:var(--good)"><span class="swatch box"></span>0.75–2.5 m/s</span>
+        </div>
+        <svg id="chart" viewBox="0 0 720 400" role="img" aria-label="System and pump curve chart"></svg>
+        <p class="foot" id="foot"></p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const g=9.81, $=id=>document.getElementById(id);
+const ids=["D","L","k","K","disch","over","pwl","Qmin","Qmax","nu","H0","Q1","H1","Q2","H2"];
+
+function model(){
+  const v={}; ids.forEach(i=>v[i]=parseFloat($(i).value));
+  const D=v.D/1000, A=Math.PI/4*D*D, k=v.k/1000, nu=v.nu*1e-6;
+  const HsMax=v.disch-v.pwl, HsMin=v.disch-v.over;
+  const dyn=Qls=>{
+    const Q=Qls/1000, vel=Q/A;
+    if(!(vel>0)) return {vel:0,hf:0,Re:0,lam:0};
+    const Re=vel*D/nu;
+    const lam=0.25/Math.pow(Math.log10(k/(3.7*D)+5.74/Math.pow(Re,0.9)),2);
+    const hf=(lam*(v.L/D)+v.K)*vel*vel/(2*g);
+    return {vel,hf,Re,lam};
+  };
+  // pump curve: quadratic through (0,H0),(Q1,H1),(Q2,H2)
+  const a0=v.H0, b1=v.H1-a0, b2=v.H2-a0;
+  const det=v.Q1*v.Q2*(v.Q2-v.Q1);
+  const a1=(b1*v.Q2*v.Q2 - b2*v.Q1*v.Q1)/det;
+  const a2=(v.Q1*b2 - v.Q2*b1)/det;
+  const pump=Qls=>a0+a1*Qls+a2*Qls*Qls;
+  // velocity-window flows (L/s)
+  const Qv=vv=>vv*A*1000;
+  return {v,A,HsMax,HsMin,dyn,pump,Qlo:Qv(0.75),Qhi:Qv(2.5)};
+}
+
+// intersection of pump curve with system curve at static head Hs
+function duty(m,Hs,cap){
+  let prev=null,prevQ=0,step=0.2;
+  for(let q=step;q<=cap;q+=step){
+    const diff=m.pump(q)-(Hs+m.dyn(q).hf);
+    if(prev!==null && prev>=0 && diff<0){
+      const t=prev/(prev-diff), Q=prevQ+t*step;
+      return {ok:true,Q,H:m.pump(Q),vel:(Q/1000)/m.A};
+    }
+    prev=diff; prevQ=q;
+  }
+  return {ok:false};
+}
+
+const fmt=(x,d=2)=>isFinite(x)?x.toFixed(d):"–";
+
+function render(){
+  const m=model(),v=m.v;
+  const dmin=m.dyn(v.Qmin),dmax=m.dyn(v.Qmax);
+  $("hsmin").textContent=fmt(m.HsMin,2);
+  $("hsmax").innerHTML=fmt(m.HsMax,2)+'<span class="k-unit">m</span>';
+  $("hdmin").textContent=fmt(dmin.hf,2);
+  $("hdmax").innerHTML=fmt(dmax.hf,2)+'<span class="k-unit">m</span>';
+
+  const cap=Math.max(v.Qmax,v.Q2,m.Qhi)*1.25;
+  const opHi=duty(m,m.HsMax,cap);  // max static -> lower flow
+  const opLo=duty(m,m.HsMin,cap);  // min static -> higher flow
+  const qLow = opHi.ok?opHi.Q:NaN, qHigh=opLo.ok?opLo.Q:NaN;
+  const vLow = opHi.ok?opHi.vel:NaN, vHigh=opLo.ok?opLo.vel:NaN;
+
+  $("qdmin").textContent=opHi.ok?fmt(qLow,1):"—";
+  $("qdmax").innerHTML=(opLo.ok?fmt(qHigh,1):"—")+'<span class="k-unit">L/s</span>';
+  $("vdmin").textContent=opHi.ok?fmt(vLow,2):"—";
+  $("vdmax").innerHTML=(opLo.ok?fmt(vHigh,2):"—")+'<span class="k-unit">m/s</span>';
+
+  const pill=$("vpill");
+  if(!opHi.ok||!opLo.ok){
+    pill.className="pill crit"; pill.innerHTML='<span class="dot"></span>pump undersized';
+  }else{
+    const lo=Math.min(vLow,vHigh),hi=Math.max(vLow,vHigh);
+    let cls="good",txt="within 0.75–2.5 m/s";
+    if(lo<0.75){cls="warn";txt="below self-cleansing";}
+    if(hi>2.5){cls=(cls==="warn"?"crit":"warn");txt=lo<0.75?"outside band":"above 2.5 m/s";}
+    pill.className="pill "+cls; pill.innerHTML='<span class="dot"></span>'+txt;
+  }
+
+  drawChart(m,v,cap,opHi,opLo);
+
+  const dutyTxt = (opHi.ok&&opLo.ok)
+    ? `Duty flow swings <code>${fmt(qLow,1)}–${fmt(qHigh,1)} L/s</code> as the wet well cycles pump-off→overflow, i.e. velocity <code>${fmt(vLow,2)}–${fmt(vHigh,2)} m/s</code>.`
+    : `Pump curve does not intersect the system curve within range — check shut-off head / duty points.`;
+  $("foot").innerHTML=
+    `Self-cleansing 0.75 m/s ≈ <code>${fmt(m.Qlo,1)} L/s</code>, upper 2.5 m/s ≈ <code>${fmt(m.Qhi,1)} L/s</code> for this bore. ${dutyTxt}`;
+}
+
+function drawChart(m,v,cap,opHi,opLo){
+  const W=720,H=400,pl=54,pr=16,pt=16,pb=42;
+  const x0=pl,x1=W-pr,y0=H-pb,y1=pt;
+  const Qax=Math.max(v.Qmax*1.15,m.Qhi*1.05,v.Q2,(opLo.ok?opLo.Q*1.1:0));
+  const Hax=Math.max(v.H0, m.HsMax+m.dyn(Qax).hf)*1.06;
+  const sx=q=>x0+(q/Qax)*(x1-x0);
+  const sy=h=>y0-(h/Hax)*(y0-y1);
+  const N=64;
+  const sysPath=Hs=>{let d="";for(let i=0;i<=N;i++){const q=Qax*i/N;
+    d+=(i?"L":"M")+sx(q).toFixed(1)+" "+sy(Hs+m.dyn(q).hf).toFixed(1)+" ";}return d.trim();};
+  const pumpPath=()=>{let d="",started=false;for(let i=0;i<=N;i++){const q=Qax*i/N,h=m.pump(q);
+    if(h<0)continue; d+=(started?"L":"M")+sx(q).toFixed(1)+" "+sy(h).toFixed(1)+" ";started=true;}return d.trim();};
+
+  // grid + ticks
+  let grid="",ticks="";const nY=5;
+  for(let i=0;i<=nY;i++){const h=Hax*i/nY,y=sy(h);
+    grid+=`<line class="gridline" x1="${x0}" y1="${y}" x2="${x1}" y2="${y}"/>`;
+    ticks+=`<text class="tick" x="${x0-8}" y="${y+3}" text-anchor="end">${h.toFixed(0)}</text>`;}
+  const nX=6;for(let i=0;i<=nX;i++){const q=Qax*i/nX,x=sx(q);
+    ticks+=`<text class="tick" x="${x}" y="${y0+16}" text-anchor="middle">${q.toFixed(0)}</text>`;}
+
+  // velocity window band
+  const bx0=sx(Math.max(0,m.Qlo)), bx1=sx(Math.min(Qax,m.Qhi));
+  const band=`<rect x="${bx0}" y="${y1}" width="${Math.max(0,bx1-bx0)}" height="${y0-y1}"
+      fill="var(--good)" opacity=".12"/>
+    <line x1="${bx0}" y1="${y1}" x2="${bx0}" y2="${y0}" stroke="var(--good)" stroke-width="1" opacity=".5" stroke-dasharray="3 3"/>
+    <line x1="${bx1}" y1="${y1}" x2="${bx1}" y2="${y0}" stroke="var(--good)" stroke-width="1" opacity=".5" stroke-dasharray="3 3"/>
+    <text class="tick" x="${bx0+3}" y="${y0-5}" fill="var(--good)">0.75</text>
+    <text class="tick" x="${bx1-3}" y="${y0-5}" fill="var(--good)" text-anchor="end">2.5 m/s</text>`;
+
+  const diamond=(q,h,ok)=>{if(!ok)return"";const x=sx(q),y=sy(h),s=5.5;
+    return `<path d="M ${x} ${y-s} L ${x+s} ${y} L ${x} ${y+s} L ${x-s} ${y} Z"
+      fill="var(--pump)" stroke="var(--panel)" stroke-width="1.5"/>`;};
+
+  const svg=`
+    ${band}${grid}
+    <line x1="${x0}" y1="${y0}" x2="${x1}" y2="${y0}" stroke="var(--line)"/>
+    <line x1="${x0}" y1="${y0}" x2="${x0}" y2="${y1}" stroke="var(--line)"/>
+    ${ticks}
+    <path d="${sysPath(m.HsMin)}" fill="none" stroke="var(--warm)" stroke-width="2.4" stroke-linejoin="round"/>
+    <path d="${sysPath(m.HsMax)}" fill="none" stroke="var(--accent)" stroke-width="2.4" stroke-linejoin="round"/>
+    <path d="${pumpPath()}" fill="none" stroke="var(--pump)" stroke-width="2.4" stroke-linejoin="round" stroke-dasharray="7 4"/>
+    ${diamond(opHi.Q,opHi.H,opHi.ok)}${diamond(opLo.Q,opLo.H,opLo.ok)}
+    <text class="axis-lab" x="${(x0+x1)/2}" y="${H-6}" text-anchor="middle">Flow  Q  (L/s)</text>
+    <text class="axis-lab" transform="translate(14 ${(y0+y1)/2}) rotate(-90)" text-anchor="middle">Head  H  (m)</text>
+  `;
+  $("chart").innerHTML=svg;
+}
+
+ids.forEach(i=>$(i).addEventListener("input",render));
+render();
+</script>
+</body>
+</html>
